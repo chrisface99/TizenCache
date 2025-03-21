@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Playlist Cacher</title>
+    <link href="/styles.css" rel="stylesheet" />
+    <st
+</head>
+
+<body>
+    <div class="container">
+        <h1>Video Playlist Cacher</h1>
+
+        <div id="message" class="message" style="display: none;"></div>
+
+        <div class="file-options">
+            <h3>File System Access</h3>
+            <div class="file-button-group">
+                <button id="loadFromFileBtn">Load Playlist from File</button>
+                <button id="saveToFileBtn">Save Playlist to File</button>
+                <button id="exportLogBtn">Export Log to File</button>
+                <button id="pickFolderBtn">Choose Video Folder</button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="input-area">
+                    <label for="jsonInput">Paste JSON video URLs:</label>
+                    <textarea id="jsonInput"
+                        placeholder='["https://example.com/video1.mp4", "https://example.com/video2.mp4"]'></textarea>
+                </div>
+
+                <div class="button-group">
+                    <button id="loadBtn">Load Playlist</button>
+                    <button id="cacheBtn" disabled>Cache Videos</button>
+                    <button id="refreshBtn" disabled>Refresh Cache Status</button>
+                    <button id="startBtn" disabled>Start Playback</button>
+                    <button id="stopBtn" disabled>Stop Playback</button>
+                    <button id="clearBtn">Clear Cache</button>
+                </div>
+
+                <video id="videoPlayer" controls></video>
+            </div>
+
+            <div class="right-panel">
+                <div id="playlistContainer" class="playlist-container">
+                    <h2>Playlist</h2>
+                    <div id="playlistItems"></div>
+                </div>
+
+                <div class="console-container">
+                    <div class="console-header">
+                        <span>Cache Operations Log</span>
+                        <div>
+                            <button id="clearLogBtn" class="clear-button">Clear Log</button>
+                            <button id="copyLogBtn" class="copy-button">Copy Log</button>
+                        </div>
+                    </div>
+                    <div class="console-area" id="consoleArea">
+                        <div class="console-line">
+                            <span class="console-time">[System]</span>
+                            <span class="console-info">Console initialized. Ready to log caching operations.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="main.js"></script>
+</body>
+</html>
