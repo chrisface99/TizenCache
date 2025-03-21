@@ -73,26 +73,6 @@ function initTizenFeatures() {
         if (typeof tizen !== 'undefined') {
             logToConsole('Tizen API detected, configuring for Tizen platform', 'success');
             
-            // Request required privileges
-            const requiredPrivileges = [
-                'http://tizen.org/privilege/filesystem.read',
-                'http://tizen.org/privilege/filesystem.write'
-            ];
-            
-            // Check if we have all required privileges
-            let hasAllPrivileges = true;
-            requiredPrivileges.forEach(privilege => {
-                if (!tizen.ppm.checkPermission(privilege)) {
-                    logToConsole(`Missing required privilege: ${privilege}`, 'error');
-                    hasAllPrivileges = false;
-                }
-            });
-            
-            if (!hasAllPrivileges) {
-                logToConsole('Missing required privileges - some features may not work', 'error');
-                showMessage('Missing required privileges - some features may not work', 'error');
-            }
-            
             // Initialize cache directory
             initCacheDirectory();
             
@@ -125,22 +105,26 @@ function initTizenFeatures() {
 function initCacheDirectory() {
     try {
         tizen.filesystem.resolve(
-            VIDEO_CACHE_DIR,
-            function(directory) {
-                cacheDirHandle = directory;
-                logToConsole(`Cache directory accessed: ${VIDEO_CACHE_DIR}`, 'success');
-            },
-            function(error) {
-                // Directory doesn't exist, create it
+            'documents',  // Use a standard location like 'documents' as base
+            function(documentsDir) {
+                // First check if our cache directory already exists
                 try {
-                    let virtualRoot = tizen.filesystem.getVirtualRootDirectory();
-                    cacheDirHandle = virtualRoot.createDirectory(VIDEO_CACHE_DIR);
-                    logToConsole(`Cache directory created: ${VIDEO_CACHE_DIR}`, 'success');
-                } catch (createError) {
-                    logToConsole(`Failed to create cache directory: ${createError.message}`, 'error');
+                    cacheDirHandle = documentsDir.resolve(VIDEO_CACHE_DIR);
+                    logToConsole(`Cache directory accessed: ${VIDEO_CACHE_DIR}`, 'success');
+                } catch (resolveError) {
+                    // Directory doesn't exist, create it
+                    try {
+                        cacheDirHandle = documentsDir.createDirectory(VIDEO_CACHE_DIR);
+                        logToConsole(`Cache directory created: ${VIDEO_CACHE_DIR}`, 'success');
+                    } catch (createError) {
+                        logToConsole(`Failed to create cache directory: ${createError.message}`, 'error');
+                    }
                 }
             },
-            'rw'
+            function(error) {
+                logToConsole(`Error accessing documents directory: ${error.message}`, 'error');
+            },
+            'rw'  // Access mode: read and write
         );
     } catch (error) {
         logToConsole(`Error initializing cache directory: ${error.message}`, 'error');
@@ -332,136 +316,46 @@ async function cacheVideo(url, index) {
     try {
         // Create a unique filename for the cached video
         const fileName = `video_${index}_${Date.now()}.mp4`;
-        
-        // Check if this is a local file path or URL
-        if (!url.startsWith('http')) {
-            // For local files, copy the file to the cache directory
-            try {
-                // First, check if the source file exists
-                tizen.filesystem.resolve(
-                    url,
-                    function(sourceFile) {
-                        // Create destination file in cache directory
-                        if (!cacheDirHandle) {
-                            throw new Error('Cache directory not initialized');
-                        }
-                        
-                        // Check if we already have a cached version of this file
-                        try {
-                            const cachedPath = `${VIDEO_CACHE_DIR}/${fileName}`;
-                            const cachedFile = cacheDirHandle.resolve(fileName);
-                            // If exists, delete it first
-                            cachedFile.deleteFile();
-                            logToConsole(`Removed existing cached file: ${fileName}`, 'info');
-                        } catch (e) {
-                            // File doesn't exist yet, which is fine
-                        }
-                        
-                        // Copy the file to cache
-                        const newFile = cacheDirHandle.createFile(fileName);
-                        
-                        // Read source file
-                        const sourceStream = sourceFile.openStream('r');
-                        const fileData = sourceStream.read(sourceFile.fileSize);
-                        sourceStream.close();
-                        
-                        // Write to destination file
-                        const destStream = newFile.openStream('w');
-                        destStream.write(fileData);
-                        destStream.close();
-                        
-                        // Store the mapping of original URL to cached file
-                        const cacheData = {
-                            originalUrl: url,
-                            cachedPath: `${VIDEO_CACHE_DIR}/${fileName}`,
-                            timestamp: Date.now()
-                        };
-                        
-                        localStorage.setItem(`video-cached-${url}`, JSON.stringify(cacheData));
-                        
-                        logToConsole(`Successfully cached file ${url} to ${fileName}`, 'success');
-                        
-                        if (statusElement) {
-                            statusElement.textContent = 'Cached';
-                            statusElement.className = 'cache-status status-cached';
-                        }
-                    },
-                    function(error) {
-                        logToConsole(`Source file not found: ${url}: ${error.message}`, 'error');
-                        if (statusElement) {
-                            statusElement.textContent = 'Not Found';
-                            statusElement.className = 'cache-status status-not-cached';
-                        }
-                    },
-                    'r'
-                );
-            } catch (error) {
-                logToConsole(`Error caching local file ${url}: ${error.message}`, 'error');
-                if (statusElement) {
-                    statusElement.textContent = 'Cache Failed';
-                    statusElement.className = 'cache-status status-not-cached';
-                }
-            }
-        } else {
-            // For URLs, fetch the video and save to cache
-            try {
-                const response = await fetch(url);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                // Get the video data as ArrayBuffer
-                const videoData = await response.arrayBuffer();
-                
-                // Create a file in the cache directory
-                if (!cacheDirHandle) {
-                    throw new Error('Cache directory not initialized');
-                }
-                
-                // Check if we already have a cached version of this file
-                try {
-                    const cachedFile = cacheDirHandle.resolve(fileName);
-                    // If exists, delete it first
-                    cachedFile.deleteFile();
-                    logToConsole(`Removed existing cached file: ${fileName}`, 'info');
-                } catch (e) {
-                    // File doesn't exist yet, which is fine
-                }
-                
-                // Create new file in cache
-                const newFile = cacheDirHandle.createFile(fileName);
-                
-                // Write the video data to the file
-                const fileStream = newFile.openStream('w');
-                fileStream.write(new Uint8Array(videoData));
-                fileStream.close();
-                
-                // Store the mapping of original URL to cached file
-                const cacheData = {
-                    originalUrl: url,
-                    cachedPath: `${VIDEO_CACHE_DIR}/${fileName}`,
-                    timestamp: Date.now()
-                };
-                
-                localStorage.setItem(`video-cached-${url}`, JSON.stringify(cacheData));
-                
-                logToConsole(`Successfully cached URL ${url} to ${fileName}`, 'success');
-                
-                if (statusElement) {
-                    statusElement.textContent = 'Cached';
-                    statusElement.className = 'cache-status status-cached';
-                }
-            } catch (error) {
-                logToConsole(`Error caching URL ${url}: ${error.message}`, 'error');
-                if (statusElement) {
-                    statusElement.textContent = 'Cache Failed';
-                    statusElement.className = 'cache-status status-not-cached';
-                }
-            }
+
+        // Fetch the video data
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        // Get the video data as ArrayBuffer
+        const videoData = await response.arrayBuffer();
+
+        // Create destination file in cache directory
+        if (!cacheDirHandle) {
+            throw new Error('Cache directory not initialized');
+        }
+
+        const newFile = cacheDirHandle.createFile(fileName);
+
+        // Write to destination file
+        const destStream = newFile.openStream('w');
+        destStream.write(new Uint8Array(videoData));
+        destStream.close();
+
+        // Store the mapping of original URL to cached file
+        const cacheData = {
+            originalUrl: url,
+            cachedPath: `${VIDEO_CACHE_DIR}/${fileName}`,
+            timestamp: Date.now()
+        };
+
+        localStorage.setItem(`video-cached-${url}`, JSON.stringify(cacheData));
+
+        logToConsole(`Successfully cached file ${url} to ${fileName}`, 'success');
+
+        if (statusElement) {
+            statusElement.textContent = 'Cached';
+            statusElement.className = 'cache-status status-cached';
         }
     } catch (error) {
-        logToConsole(`Unexpected error caching ${url}: ${error.message}`, 'error');
+        logToConsole(`Error caching video ${url}: ${error.message}`, 'error');
         if (statusElement) {
             statusElement.textContent = 'Cache Failed';
             statusElement.className = 'cache-status status-not-cached';
@@ -594,7 +488,7 @@ videoPlayer.addEventListener('ended', () => {
 });
 
 // Improved function to play video with proper handling of cached videos
-function playVideo(index) {
+async function playVideo(index) {
     if (!isPlaying || index >= videoUrls.length) {
         if (index >= videoUrls.length) {
             logToConsole('End of playlist reached', 'info');
@@ -609,20 +503,54 @@ function playVideo(index) {
     }
 
     const url = videoUrls[index];
+    const cached = await isUrlCached(url);
 
-    try {
-        logToConsole(`Attempting to play video ${index + 1}: ${url}`, 'info');
+    if (cached) {
+        // Play the cached video
+        try {
+            const cacheData = JSON.parse(localStorage.getItem(`video-cached-${url}`));
+            const cachedPath = cacheData.cachedPath;
 
-        // Check if the video is cached
-        const cacheData = localStorage.getItem(`video-cached-${url}`);
+            // Resolve the cached file
+            tizen.filesystem.resolve(
+                cachedPath,
+                function(file) {
+                    // Play the file
+                    videoPlayer.src = `file://${cachedPath}`;
+                    videoPlayer.play();
+                    
+                    // Update UI
+                    currentVideoIndex = index;
 
-        if (!cacheData) {
-            logToConsole(`Video ${index + 1} is not cached, skipping...`, 'error');
+                    // Highlight current video
+                    const playlistItems = document.querySelectorAll('.playlist-item');
+                    playlistItems.forEach((item, i) => {
+                        if (i === index) {
+                            item.classList.add('now-playing');
+                        } else {
+                            item.classList.remove('now-playing');
+                        }
+                    });
+                    
+                    logToConsole(`Now playing cached video ${index + 1}: ${url}`, 'success');
+                },
+                function(error) {
+                    logToConsole(`Error playing cached video: ${error.message}`, 'error');
+                    // Try next video
+                    playVideo(index + 1);
+                },
+                'r'
+            );
+        } catch (error) {
+            logToConsole(`Error playing cached video: ${error.message}`, 'error');
             // Try next video
             playVideo(index + 1);
-            return;
         }
-
+    } else {
+        // Stream the video if not cached
+        videoPlayer.src = url;
+        videoPlayer.play();
+        
         // Update UI
         currentVideoIndex = index;
 
@@ -635,62 +563,8 @@ function playVideo(index) {
                 item.classList.remove('now-playing');
             }
         });
-
-        // Get cache info
-        const cacheInfo = JSON.parse(cacheData);
         
-        // If we're on Tizen, play from cache using Tizen API
-        if (typeof tizen !== 'undefined') {
-            tizen.filesystem.resolve(
-                cacheInfo.cachedPath,
-                function(videoFile) {
-                    // Create a media URI
-                    const mediaUrl = videoFile.toURI();
-                    
-                    // Set the source and play
-                    videoPlayer.src = mediaUrl;
-                    videoPlayer.load();
-                    
-                    const playPromise = videoPlayer.play();
-                    if (playPromise) {
-                        playPromise.catch(error => {
-                            logToConsole(`Error playing video: ${error.message}`, 'error');
-                            // Try next video
-                            playVideo(index + 1);
-                        });
-                    }
-                    
-                    logToConsole(`Now playing video ${index + 1} from cache: ${url}`, 'success');
-                },
-                function(error) {
-                    logToConsole(`Cached file not found: ${cacheInfo.cachedPath}`, 'error');
-                    // Remove invalid cache entry
-                    localStorage.removeItem(`video-cached-${url}`);
-                    // Try next video
-                    playVideo(index + 1);
-                },
-                'r'
-            );
-        } else {
-            // For web browser, just play the original URL
-            videoPlayer.src = url;
-            videoPlayer.load();
-            
-            const playPromise = videoPlayer.play();
-            if (playPromise) {
-                playPromise.catch(error => {
-                    logToConsole(`Error playing video: ${error.message}`, 'error');
-                    // Try next video
-                    playVideo(index + 1);
-                });
-            }
-            
-            logToConsole(`Now playing video ${index + 1}: ${url}`, 'success');
-        }
-    } catch (error) {
-        logToConsole(`Error playing video ${index + 1}: ${error.message}`, 'error');
-        // Try next video
-        playVideo(index + 1);
+        logToConsole(`Now playing streamed video ${index + 1}: ${url}`, 'info');
     }
 }
 
